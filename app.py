@@ -205,39 +205,67 @@ def naive_invoke(user_message: str, session_id: str):
 
 
 def run_demo():
-    print_separator("NAIVE STATELESS DEMO")
+    print_separator("NAIVE STATELESS DEMO - CONTEXT BREAK DEMONSTRATION")
 
     session_stateless = str(uuid.uuid4())
 
-    print("User: My name is Sunil.")
-    print("Assistant:", naive_invoke("My name is Sunil.", session_stateless))
+    print("User: We are building an AI system for processing medical insurance claims.")
+    resp1 = naive_invoke(
+        "We are building an AI system for processing medical insurance claims.",
+        session_stateless,
+    )
+    print("Assistant:", resp1)
 
-    print("\nUser: What is my name?")
-    print("Assistant:", naive_invoke("What is my name?", session_stateless))
+    print("\nUser: What are the main risks in this system?")
+    resp2 = naive_invoke("What are the main risks in this system?", session_stateless)
+    print("Assistant:", resp2)
 
-    print_separator("STATEFUL MESSAGE-BASED DEMO")
+    print("""
+    
+WHY CONTEXT BREAK OCCURRED:
+In string-based (stateless) invocation, each LLM call is isolated.
+The model receives only the current prompt and does not have access
+to previous conversation history. Therefore, when asked "What are the main risks?",
+the model has NO context about the medical insurance claims system mentioned earlier.
+The second question is answered without awareness of the system domain.
+""")
+
+    print_separator("CONTEXT FIX - MESSAGE-BASED INVOCATION")
 
     session_stateful = str(uuid.uuid4())
 
-    print("User: My name is Sunil.")
-    print("Assistant:", logged_invoke("My name is Sunil.", session_stateful))
+    messages = [
+        SystemMessage(
+            content="You are a senior AI architect reviewing production systems."
+        ),
+        HumanMessage(
+            content="We are building an AI system for processing medical insurance claims."
+        ),
+        HumanMessage(content="What are the main risks in this system?"),
+    ]
 
-    print("\nUser: What is my name?")
-    print("Assistant:", logged_invoke("What is my name?", session_stateful))
+    print("System: You are a senior AI architect reviewing production systems.")
+    print("User: We are building an AI system for processing medical insurance claims.")
+    print("User: What are the main risks in this system?")
+    print("\nInvoking LLM with structured messages...")
+
+    response = llm_openai.invoke(messages)
+    print("Assistant:", response.content)
 
     print_separator("ENTERPRISE OBSERVATION")
 
     print("""
-Stateless Invocation:
+STATELESS INVOCATION (Context Break):
 - Each call is independent.
 - No conversation memory.
 - Fails for multi-turn dialogue.
+- Second question lacks context about insurance claims system.
 
-Stateful Invocation:
-- Structured message history preserved.
-- Enables contextual continuity.
-- Required for AI Agents, RAG systems,
-  enterprise chat systems, and session-based architectures.
+STATEFUL INVOCATION (Context Fix):
+- Structured message history is explicitly passed to model.
+- Model receives full conversation context on each call.
+- Multi-turn memory works reliably.
+- Required for AI Agents, RAG systems, and enterprise chat systems.
 """)
 
 
