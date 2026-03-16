@@ -1,23 +1,21 @@
 """
-Day 1 – Context Handling Fundamentals
+Day 2 Assignment – Routing with LangGraph (Tier-Based Support Flow)
 
 This module demonstrates:
 
-1. Naive LLM invocation (stateless)
-2. Message-based invocation (stateful)
-3. Structured logging with latency and token tracking
-4. Session-aware invocation pattern
+1. Typed state management with LangGraph (SupportState)
+2. Explicit routing logic based on user tier (vip vs standard)
+3. Conditional edge handling with add_conditional_edges
+4. Simple but production-minded workflow design
 
-This mirrors real-world enterprise AI service logging patterns.
+The routing is auditable, testable, and ready for enterprise use.
 """
 
-import logging
-import json
-from datetime import datetime
+from typing import TypedDict, Annotated
+from operator import add
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-import uuid
+from langchain_core.messages import BaseMessage, HumanMessage
+from langgraph.graph import StateGraph, END
 
 # =====================================================
 # Environment Setup
@@ -26,283 +24,246 @@ import uuid
 load_dotenv()
 
 # =====================================================
-# Logging Configuration (Structured JSON Logging)
-# =====================================================
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-
-logger = logging.getLogger("llm_agent")
-
-# =====================================================
-# LLM Initialization
-# =====================================================
-
-llm_openai = ChatOpenAI(model="gpt-4.1-nano")
-
-# =====================================================
-# GLOBAL Conversation (Stateful Example)
-# =====================================================
-
-conversation = [
-    SystemMessage(content="You are a concise, professional, and friendly assistant.")
-]
-
-# =====================================================
-# Utility
+# STATE DEFINITION
 # =====================================================
 
 
-def print_separator(title: str):
-    print("\n" + "=" * 60)
-    print(title)
-    print("=" * 60 + "\n")
-
-
-# =====================================================
-# Stateful Logged Invoke (Message-Based)
-# =====================================================
-
-
-def logged_invoke(user_message: str, session_id: str):
+class SupportState(TypedDict):
     """
-    Stateful LLM invocation using structured message history.
+    Typed state for the support routing workflow.
+
+    Fields:
+        messages: Conversation history (accumulates with operator.add)
+        should_escalate: Boolean flag indicating escalation need
+        issue_type: Categorization of the support issue
+        user_tier: Customer tier ("vip" or "standard")
     """
 
-    start_time = datetime.now()
+    messages: Annotated[list[BaseMessage], add]
+    should_escalate: bool
+    issue_type: str
+    user_tier: str
 
-    conversation.append(HumanMessage(content=user_message))
 
-    logger.info(
-        json.dumps(
-            {
-                "event": "llm_call_start",
-                "session_id": session_id,
-                "timestamp": start_time.isoformat(),
-                "user_message": user_message,
-                "model": "gpt-4.1-nano",
-                "mode": "stateful",
-            }
-        )
+# =====================================================
+# ROUTING LOGIC
+# =====================================================
+
+
+def route_by_tier(state: SupportState) -> str:
+    """
+    Route the support request based on user tier.
+
+    Routing decisions:
+        - "vip" users → "vip_path" (fast-track, no escalation)
+        - All others → "standard_path" (normal flow, may escalate)
+
+    Args:
+        state: Current support state
+
+    Returns:
+        Route name as string ("vip_path" or "standard_path")
+    """
+    if state.get("user_tier") == "vip":
+        return "vip_path"
+    return "standard_path"
+
+
+# =====================================================
+# NODES (Workflow Steps)
+# =====================================================
+
+
+def check_user_tier_node(state: SupportState) -> dict:
+    """
+    Determine if the user is a VIP or standard customer.
+
+    Implementation:
+        - Checks the first message for keywords like "vip" or "premium"
+        - Simple mock for demonstration (in production: database lookup)
+
+    Args:
+        state: Current support state
+
+    Returns:
+        Dictionary with updated user_tier
+    """
+    first_message = state["messages"][0].content.lower()
+
+    if "vip" in first_message or "premium" in first_message:
+        user_tier = "vip"
+    else:
+        user_tier = "standard"
+
+    print(f"✓ check_user_tier_node: Classified as '{user_tier}'")
+
+    return {"user_tier": user_tier}
+
+
+def vip_agent_node(state: SupportState) -> dict:
+    """
+    Handle VIP customer path.
+
+    Characteristics:
+        - Fast-track handling
+        - No escalation needed
+        - Premium service tier
+
+    Args:
+        state: Current support state
+
+    Returns:
+        Dictionary with VIP-specific handling flags
+    """
+    print("→ vip_agent_node: Handling VIP customer with priority service")
+
+    return {
+        "should_escalate": False,
+    }
+
+
+def standard_agent_node(state: SupportState) -> dict:
+    """
+    Handle standard customer path.
+
+    Characteristics:
+        - Normal workflow
+        - May escalate if needed
+        - Standard service tier
+
+    Args:
+        state: Current support state
+
+    Returns:
+        Dictionary with standard handling flags
+    """
+    print("→ standard_agent_node: Handling standard customer")
+
+    return {
+        "should_escalate": True,
+    }
+
+
+# =====================================================
+# GRAPH CONSTRUCTION
+# =====================================================
+
+
+def build_graph():
+    """
+    Construct and compile the support routing workflow graph.
+
+    Graph structure:
+        1. check_tier (entry point)
+        2. [conditional split]
+           - vip_agent (VIP path)
+           - standard_agent (standard path)
+        3. END
+
+    Returns:
+        Compiled LangGraph StateGraph
+    """
+    workflow = StateGraph(SupportState)
+
+    # Add nodes
+    workflow.add_node("check_tier", check_user_tier_node)
+    workflow.add_node("vip_agent", vip_agent_node)
+    workflow.add_node("standard_agent", standard_agent_node)
+
+    # Set entry point
+    workflow.set_entry_point("check_tier")
+
+    # Add conditional routing from check_tier based on route_by_tier function
+    workflow.add_conditional_edges(
+        "check_tier",
+        route_by_tier,
+        {
+            "vip_path": "vip_agent",
+            "standard_path": "standard_agent",
+        },
     )
 
-    try:
-        response = llm_openai.invoke(conversation)
-        latency = (datetime.now() - start_time).total_seconds()
+    # Add edges to END
+    workflow.add_edge("vip_agent", END)
+    workflow.add_edge("standard_agent", END)
 
-        conversation.append(AIMessage(content=response.content))
-
-        logger.info(
-            json.dumps(
-                {
-                    "event": "llm_call_success",
-                    "session_id": session_id,
-                    "timestamp": datetime.now().isoformat(),
-                    "latency_seconds": latency,
-                    "response": response.content,
-                    "output_tokens": response.usage_metadata.get("output_tokens"),
-                    "input_tokens": response.usage_metadata.get("input_tokens"),
-                }
-            )
-        )
-
-        return response.content
-
-    except Exception as e:
-        latency = (datetime.now() - start_time).total_seconds()
-
-        logger.error(
-            json.dumps(
-                {
-                    "event": "llm_call_error",
-                    "session_id": session_id,
-                    "timestamp": datetime.now().isoformat(),
-                    "latency_seconds": latency,
-                    "error": str(e),
-                }
-            )
-        )
-
-        raise e
+    return workflow.compile()
 
 
 # =====================================================
-# Stateless Invoke (Naive)
+# EXECUTION
 # =====================================================
 
 
-def naive_invoke(user_message: str, session_id: str):
+def main() -> None:
     """
-    Stateless LLM invocation.
-    Does NOT retain previous conversation context.
+    Main entry point demonstrating the routing workflow.
+
+    Executes two test cases:
+        1. VIP customer flow
+        2. Standard customer flow
+
+    Outputs:
+        - user_tier and should_escalate for each flow
+        - Printed routing decisions for visibility
     """
+    print("\n" + "=" * 70)
+    print("DAY 2 ASSIGNMENT – ROUTING WITH LANGGRAPH")
+    print("=" * 70 + "\n")
 
-    start_time = datetime.now()
+    # Build the graph
+    graph = build_graph()
 
-    logger.info(
-        json.dumps(
-            {
-                "event": "llm_call_start",
-                "session_id": session_id,
-                "timestamp": start_time.isoformat(),
-                "user_message": user_message,
-                "model": "gpt-4.1-nano",
-                "mode": "stateless",
-            }
-        )
+    # --------- TEST CASE 1: VIP CUSTOMER ---------
+    print("[TEST 1] VIP Customer Flow")
+    print("-" * 70)
+
+    vip_result = graph.invoke(
+        {
+            "messages": [
+                HumanMessage(content="I'm a VIP customer, please check my order status")
+            ],
+            "should_escalate": False,
+            "issue_type": "",
+            "user_tier": "",
+        }
     )
 
-    try:
-        response = llm_openai.invoke(
-            [
-                SystemMessage(content="You are a concise, professional assistant."),
-                HumanMessage(content=user_message),
-            ]
-        )
-
-        latency = (datetime.now() - start_time).total_seconds()
-
-        logger.info(
-            json.dumps(
-                {
-                    "event": "llm_call_success",
-                    "session_id": session_id,
-                    "timestamp": datetime.now().isoformat(),
-                    "latency_seconds": latency,
-                    "response": response.content,
-                    "output_tokens": response.usage_metadata.get("output_tokens"),
-                    "input_tokens": response.usage_metadata.get("input_tokens"),
-                }
-            )
-        )
-
-        return response.content
-
-    except Exception as e:
-        latency = (datetime.now() - start_time).total_seconds()
-
-        logger.error(
-            json.dumps(
-                {
-                    "event": "llm_call_error",
-                    "session_id": session_id,
-                    "timestamp": datetime.now().isoformat(),
-                    "latency_seconds": latency,
-                    "error": str(e),
-                }
-            )
-        )
-
-        raise e
-
-
-# =====================================================
-# Demo Execution
-# =====================================================
-
-
-def run_demo():
-    print_separator("NAIVE STATELESS DEMO - CONTEXT BREAK DEMONSTRATION")
-
-    session_stateless = str(uuid.uuid4())
-
-    print("User: We are building an AI system for processing medical insurance claims.")
-    resp1 = naive_invoke(
-        "We are building an AI system for processing medical insurance claims.",
-        session_stateless,
+    print(
+        f"\nResult → user_tier: '{vip_result.get('user_tier')}' | should_escalate: {vip_result.get('should_escalate')}"
     )
-    print("Assistant:", resp1)
+    print()
 
-    print("\nUser: What are the main risks in this system?")
-    resp2 = naive_invoke("What are the main risks in this system?", session_stateless)
-    print("Assistant:", resp2)
+    # --------- TEST CASE 2: STANDARD CUSTOMER ---------
+    print("[TEST 2] Standard Customer Flow")
+    print("-" * 70)
 
-    print("""
-    
-WHY CONTEXT BREAK OCCURRED:
-In string-based (stateless) invocation, each LLM call is isolated.
-The model receives only the current prompt and does not have access
-to previous conversation history. Therefore, when asked "What are the main risks?",
-the model has NO context about the medical insurance claims system mentioned earlier.
-The second question is answered without awareness of the system domain.
-""")
+    standard_result = graph.invoke(
+        {
+            "messages": [HumanMessage(content="I need help with my order")],
+            "should_escalate": False,
+            "issue_type": "",
+            "user_tier": "",
+        }
+    )
 
-    print_separator("CONTEXT FIX - MESSAGE-BASED INVOCATION")
+    print(
+        f"\nResult → user_tier: '{standard_result.get('user_tier')}' | should_escalate: {standard_result.get('should_escalate')}"
+    )
+    print()
 
-    session_stateful = str(uuid.uuid4())
-
-    messages = [
-        SystemMessage(
-            content="You are a senior AI architect reviewing production systems."
-        ),
-        HumanMessage(
-            content="We are building an AI system for processing medical insurance claims."
-        ),
-        HumanMessage(content="What are the main risks in this system?"),
-    ]
-
-    print("System: You are a senior AI architect reviewing production systems.")
-    print("User: We are building an AI system for processing medical insurance claims.")
-    print("User: What are the main risks in this system?")
-    print("\nInvoking LLM with structured messages...")
-
-    response = llm_openai.invoke(messages)
-    print("Assistant:", response.content)
-
-    print_separator("ENTERPRISE OBSERVATION")
-
-    print("""
-STATELESS INVOCATION (Context Break):
-- Each call is independent.
-- No conversation memory.
-- Fails for multi-turn dialogue.
-- Second question lacks context about insurance claims system.
-
-STATEFUL INVOCATION (Context Fix):
-- Structured message history is explicitly passed to model.
-- Model receives full conversation context on each call.
-- Multi-turn memory works reliably.
-- Required for AI Agents, RAG systems, and enterprise chat systems.
-""")
+    # --------- SUMMARY ---------
+    print("=" * 70)
+    print("ROUTING LOGIC SUMMARY")
+    print("=" * 70)
+    print("✓ VIP path: user_tier='vip', should_escalate=False (fast-track)")
+    print("✓ Standard path: user_tier='standard', should_escalate=True (may escalate)")
+    print()
 
 
 # =====================================================
-# Main Entry
+# ENTRY POINT
 # =====================================================
 
 if __name__ == "__main__":
-    logger.info("Application started")
-    run_demo()
-    logger.info("Application finished")
-
-"""
-=====================================================
-Reflection:
-=====================================================
-1. Why did string-based invocation fail?
-
-   In string-based (stateless) invocation, each LLM call is isolated.
-   The model receives only the current prompt and does not have access
-   to previous conversation history. Therefore, it cannot recall
-   prior user inputs such as name, preferences, or prior context.
-
-2. Why does message-based invocation work?
-
-   Message-based invocation explicitly passes structured conversation
-   history (SystemMessage, HumanMessage, AIMessage) back to the model
-   on each call. This preserves conversational state and enables
-   multi-turn contextual continuity.
-
-3. What would break in a production AI system if we ignore message history?
-
-   - Multi-turn conversations would fail.
-   - AI agents would lose memory of previous tool outputs.
-   - RAG systems would not maintain conversational grounding.
-   - Session-based user interactions would become inconsistent.
-   - Enterprise chat systems would produce incorrect or incoherent responses.
-
-   In short, ignoring message history makes stateful AI systems impossible.
-"""
+    main()

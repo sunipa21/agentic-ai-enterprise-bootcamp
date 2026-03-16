@@ -1,54 +1,78 @@
-# Day 1 – Context Handling Fundamentals in LLM Systems
+# Day 2 – Routing with LangGraph (Tier-Based Support Flow)
 
 ## Objective
 
-Understand why naive LLM invocation fails in real-world systems and how structured message-based invocation preserves context.
+Design a **minimal but production-minded LangGraph workflow** that routes users to different support paths based on **user tier** (VIP vs. standard).
 
-This exercise demonstrates:
+This assignment demonstrates:
 
-- Why string-based prompts are stateless
-- How structured message history maintains conversation memory
-- Why context management is critical in production-grade AI systems
+- Typed state management with LangGraph (`SupportState`)
+- Explicit, auditable routing logic (`route_by_tier`)
+- Conditional edge handling with `add_conditional_edges`
+- A clean, testable workflow foundation
 
 ---
 
 ## Problem Statement
 
-When interacting with an LLM using simple string prompts, each call is isolated.
+In real-world systems, routing decisions must be **explicit and auditable**. Without proper routing logic, support workflows become chaotic and inconsistent.
 
-Example:
+Example scenario:
 
 ```
-User: "We are building an AI system for processing medical insurance claims."
-User: "What are the main risks in this system?"
+User 1: "I'm a VIP customer, I need urgent help"
+User 2: "I need help with my order"
 ```
 
-In naive implementation, the model cannot properly answer the second question because the context about medical insurance claims is not passed to the second invocation.
+Without tier-based routing:
+- Both requests treated equally
+- VIP customers don't receive priority handling
+- No distinction between urgent and standard issues
+- Business logic is scattered across the code
 
-Enterprise AI systems must manage structured conversation history to enable:
+Enterprise support systems must implement **structured routing** to enable:
 
-- Multi-turn conversations
-- Session-based interactions
-- Agent memory
-- Context-aware decision making
+- Tier-based prioritization
+- Consistent handling across different paths
+- Auditable decision logic
+- Scalable workflow architecture
 
 ---
 
 ## 🏗 Implementation Overview
 
-This project contains two demonstrations:
+This project implements a support routing system with two distinct paths:
 
-### 1. Naive Stateless Invocation
-- Each LLM call is independent
-- No memory retention
-- Context is lost between calls
-- Fails to properly address follow-up questions without context
+### 1. Tier Detection
+- Analyzes incoming support request
+- Identifies customer tier (VIP or standard)
+- Routes to appropriate handling path
 
-### 2. Message-Based Stateful Invocation
-- Structured message history is maintained
-- Prior conversation is passed to model
-- Multi-turn memory works reliably
-- Provides proper context for all follow-up queries
+### 2. VIP Path
+- Fast-track handling
+- No escalation needed
+- Premium service tier
+
+### 3. Standard Path
+- Normal workflow
+- May escalate if needed
+- Standard service tier
+
+---
+
+## 🤖 Why OpenAI API is Not Used
+
+This implementation uses **mock nodes** instead of LLM API calls for the following reasons:
+
+1. **Assignment Focus**: The core requirement is demonstrating **routing logic**, not LLM capabilities
+2. **Cost Efficiency**: Avoids unnecessary API calls during testing and development
+3. **Simplicity**: Focuses on the foundation—typed state, explicit routing, and graph structure
+4. **Production Pattern**: In real deployments, this routing layer would orchestrate different LLM calls based on tier
+
+The assignment explicitly states:
+> "You can call an LLM here if you want. For the assignment it is fine to just set a friendly VIP response. The grader only checks for **correct routing behavior**, not your prompt wording."
+
+**Future Enhancement**: LLM calls can be easily added to `vip_agent_node()` and `standard_agent_node()` once the routing foundation is solid.
 
 ---
 
@@ -60,7 +84,7 @@ To execute the application, run:
 python app.py
 ```
 
-This will demonstrate both naive stateless invocation and the message-based context fix.
+This will execute two test cases (VIP and standard customer) and display the routing results.
 
 ---
 
@@ -69,6 +93,8 @@ This will demonstrate both naive stateless invocation and the message-based cont
 - Python 3.8+
 - OpenAI API key (set in `.env` file)
 - Dependencies listed in `requirements.txt`
+
+---
 
 ## 🔧 Installation
 
@@ -97,9 +123,17 @@ This will demonstrate both naive stateless invocation and the message-based cont
 
 ---
 
+## ⚠️ Important
+
+**Do NOT commit `.env` to version control.** The `.env` file contains your API key and must be excluded in `.gitignore`.
+
+---
+
 ## 📊 Output
 
 The application demonstrates:
-1. **Context Break**: Naive invocation where second question lacks context
-2. **Context Fix**: Message-based invocation preserving full conversation history
-3. **Enterprise Implications**: Why message history is critical for production AI systems
+
+- **Tier Detection**: Identifies customer tier from message content
+- **Routing Logic**: Routes VIP and standard customers to appropriate paths
+- **State Management**: Tracks `user_tier` and `should_escalate` flags
+- **Auditable Results**: Clear visibility into routing decisions for both test cases
