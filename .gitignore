@@ -1,16 +1,37 @@
-# Virtual Environment
-venv/
-__pycache__/
-*.pyc
+# Day 2 - Routing with LangGraph: Tier-Based Support Flow Assignment
+# This .gitignore prevents committing sensitive files and environment-specific folders
 
-# Environment variables
+# Environment variables (NEVER commit API keys or secrets)
 .env
+.env.local
+.env.*.local
 
-# OS files
+# Python virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
 
-# VSCode
-.vscode/
+# Project specific
+.pytest_cache/
+.coverage
+htmlcov/
 
-# Logs
-*.log
+# Dependencies
+dist/
+build/
+*.egg-info/
